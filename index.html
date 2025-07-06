@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Obstacle Avoidance Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f0f0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 10px 15px;
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        #game-over-modal {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: white;
+            text-align: center;
+        }
+        #game-over-modal h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        #restart-button {
+            padding: 12px 25px;
+            font-size: 20px;
+            color: #333;
+            background-color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #restart-button:hover {
+            background-color: #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div id="info-panel">
+        Use Arrow Keys to Move
+    </div>
+    <div id="game-over-modal">
+        <h1>Game Over</h1>
+        <button id="restart-button">Restart</button>
+    </div>
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Import Three.js -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- GAME CONSTANTS ---
+        const CONSTANTS = {
+            minTileIndex: -8,
+            maxTileIndex: 8,
+            get tilesPerRow() { return this.maxTileIndex - this.minTileIndex + 1; },
+            tileSize: 42,
+            stepTime: 0.2, // Seconds for one player step
+        };
+
+        // --- GAME STATE ---
+        let isGameOver = false;
+
+        // --- CORE THREE.JS COMPONENTS ---
+        const scene = new THREE.Scene();
+        const clock = new THREE.Clock();
+
+        // --- PLAYER MODULE ---
+        const Player = (() => {
+            const playerGroup = new THREE.Group();
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(15, 15, 20),
+                new THREE.MeshLambertMaterial({ color: 0xffffff })
+            );
+            body.position.z = 10; // Stand on the ground
+            playerGroup.add(body);
+            scene.add(playerGroup);
+
+            const state = {
+                position: { currentRow: 0, currentTile: 0 },
+                movesQueue: [],
+            };
+
+            function queueMove(direction) {
+                if (isGameOver) return;
+                const isValid = MapManager.endsUpInValidPosition(
+                    state.position,
+                    [...state.movesQueue, direction]
+                );
+                if (!isValid) return;
+                state.movesQueue.push(direction);
+            }
+
+            function stepCompleted() {
+                const direction = state.movesQueue.shift();
+                if (direction === "forward") state.position.currentRow += 1;
+                if (direction === "backward") state.position.currentRow -= 1;
+                if (direction === "left") state.position.currentTile -= 1;
+                if (direction === "right") state.position.currentTile += 1;
+            }
+
+            return {
+                object: playerGroup,
+                body,
+                state,
+                queueMove,
+                stepCompleted
+            };
+        })();
+
+        // --- MAP MODULE ---
+        const MapManager = (() => {
+            const mapGroup = new THREE.Group();
+            scene.add(mapGroup);
+            
+            // Define the structure of the map
+            const metadata = [
+                { type: "forest", trees: [{ tileIndex: -5, height: 50 }, { tileIndex: 0, height: 30 }, { tileIndex: 3, height: 50 }] },
+                { type: "car", direction: true, speed: 125, vehicles: [{ initialTileIndex: -4, color: 0x78b14b }, { initialTileIndex: 0, color: 0xbdb638 }, { initialTileIndex: 5, color: 0xbdb638 }] },
+                { type: "car", direction: false, speed: 188, vehicles: [{ initialTileIndex: -4, color: 0xbdb638 }, { initialTileIndex: -1, color: 0x78b14b }, { initialTileIndex: 4, color: 0xa52523 }] },
+                { type: "forest", trees: [{ tileIndex: -8, height: 30 }, { tileIndex: -3, height: 50 }, { tileIndex: 2, height: 30 }] },
+                { type: "car", direction: true, speed: 150, vehicles: [{ initialTileIndex: -6, color: 0x3498db }, { initialTileIndex: 2, color: 0x9b59b6 }] },
+                { type: "forest", trees: [{ tileIndex: -2, height: 40 }, { tileIndex: 4, height: 60 }] },
+                { type: "car", direction: false, speed: 200, vehicles: [{ initialTileIndex: -5, color: 0xe67e22 }, { initialTileIndex: 1, color: 0x1abc9c }, { initialTileIndex: 6, color: 0xf1c40f }] },
+                { type: "forest", trees: [{ tileIndex: -6, height: 50 }, { tileIndex: -1, height: 30 }, { tileIndex: 5, height: 50 }] },
+            ];
+
+            // --- 3D Object Factories ---
+            function createGrass(rowIndex) {
+                const grass = new THREE.Group();
+                grass.position.y = rowIndex * CONSTANTS.tileSize;
+                const foundation = new THREE.Mesh(
+                    new THREE.BoxGeometry(CONSTANTS.tilesPerRow * CONSTANTS.tileSize, CONSTANTS.tileSize, 3),
+                    new THREE.MeshLambertMaterial({ color: 0xbaf455 })
+                );
+                foundation.position.z = 1.5;
+                grass.add(foundation);
+                return grass;
+            }
+
+            function createRoad(rowIndex) {
+                const road = new THREE.Group();
+                road.position.y = rowIndex * CONSTANTS.tileSize;
+                const foundation = new THREE.Mesh(
+                    new THREE.PlaneGeometry(CONSTANTS.tilesPerRow * CONSTANTS.tileSize, CONSTANTS.tileSize),
+                    new THREE.MeshLambertMaterial({ color: 0x454a59 })
+                );
+                road.add(foundation);
+                return road;
+            }
+
+            function createTree(tileIndex, height) {
+                const tree = new THREE.Group();
+                tree.position.x = tileIndex * CONSTANTS.tileSize;
+                const trunk = new THREE.Mesh(
+                    new THREE.BoxGeometry(15, 15, 20),
+                    new THREE.MeshLambertMaterial({ color: 0x4d2926 })
+                );
+                trunk.position.z = 10;
+                tree.add(trunk);
+                const crown = new THREE.Mesh(
+                    new THREE.BoxGeometry(30, 30, height),
+                    new THREE.MeshLambertMaterial({ color: 0x7aa21d })
+                );
+                crown.position.z = height / 2 + 20;
+                tree.add(crown);
+                return tree;
+            }
+
+            function createCar(initialTileIndex, direction, color) {
+                const car = new THREE.Group();
+                car.position.x = initialTileIndex * CONSTANTS.tileSize;
+                if (!direction) car.rotation.z = Math.PI; // Rotate if moving left
+
+                const main = new THREE.Mesh(new THREE.BoxGeometry(60, 30, 15), new THREE.MeshLambertMaterial({ color }));
+                main.position.z = 12;
+                car.add(main);
+
+                const cabin = new THREE.Mesh(new THREE.BoxGeometry(33, 24, 12), new THREE.MeshLambertMaterial({ color: "white" }));
+                cabin.position.x = -6;
+                cabin.position.z = 25.5;
+                car.add(cabin);
+
+                const frontWheel = new THREE.Mesh(new THREE.BoxGeometry(12, 33, 12), new THREE.MeshLambertMaterial({ color: 0x333333 }));
+                frontWheel.position.x = 18;
+                frontWheel.position.z = 6;
+                car.add(frontWheel);
+
+                const backWheel = new THREE.Mesh(new THREE.BoxGeometry(12, 33, 12), new THREE.MeshLambertMaterial({ color: 0x333333 }));
+                backWheel.position.x = -18;
+                backWheel.position.z = 6;
+                car.add(backWheel);
+
+                return car;
+            }
+
+            // --- Map Generation ---
+            function generateMap() {
+                // Starting row
+                mapGroup.add(createGrass(0));
+
+                // Generate rows from metadata
+                metadata.forEach((rowData, index) => {
+                    const rowIndex = index + 1;
+                    let row;
+                    if (rowData.type === "forest") {
+                        row = createGrass(rowIndex);
+                        rowData.trees.forEach(({ tileIndex, height }) => {
+                            row.add(createTree(tileIndex, height));
+                        });
+                    } else if (rowData.type === "car") {
+                        row = createRoad(rowIndex);
+                        rowData.vehicles.forEach((vehicle) => {
+                            const car = createCar(vehicle.initialTileIndex, rowData.direction, vehicle.color);
+                            vehicle.ref = car; // Store reference for animation
+                            row.add(car);
+                        });
+                    }
+                    if (row) mapGroup.add(row);
+                });
+            }
+            
+            // --- Movement Validation Logic ---
+            function calculateFinalPosition(currentPosition, moves) {
+                return moves.reduce((position, direction) => {
+                    const newPos = { ...position };
+                    if (direction === "forward") newPos.currentRow += 1;
+                    if (direction === "backward") newPos.currentRow -= 1;
+                    if (direction === "left") newPos.currentTile -= 1;
+                    if (direction === "right") newPos.currentTile += 1;
+                    return newPos;
+                }, currentPosition);
+            }
+
+            function endsUpInValidPosition(currentPosition, moves) {
+                const finalPosition = calculateFinalPosition(currentPosition, moves);
+
+                // Check map boundaries
+                if (finalPosition.currentRow < 0 ||
+                    finalPosition.currentTile < CONSTANTS.minTileIndex ||
+                    finalPosition.currentTile > CONSTANTS.maxTileIndex) {
+                    return false;
+                }
+                
+                // Check for tree collisions
+                const finalRowData = metadata[finalPosition.currentRow - 1];
+                if (finalRowData && finalRowData.type === "forest") {
+                    if (finalRowData.trees.some(tree => tree.tileIndex === finalPosition.currentTile)) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            }
+
+            generateMap();
+
+            return { metadata, endsUpInValidPosition };
+        })();
+
+        // --- LIGHTS ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(-100, -100, 200);
+        scene.add(dirLight);
+
+        // --- CAMERA ---
+        const camera = (() => {
+            const aspect = window.innerWidth / window.innerHeight;
+            const d = 300;
+            const cam = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 100, 2000);
+            cam.position.set(300, -300, 300);
+            cam.up.set(0, 0, 1); // Z is up
+            cam.lookAt(0, 0, 0);
+            return cam;
+        })();
+        
+        // Attach camera to player for follow-cam effect
+        Player.object.add(camera);
+
+        // --- RENDERER ---
+        const renderer = (() => {
+            const canvas = document.getElementById('game-canvas');
+            const rend = new THREE.WebGLRenderer({
+                alpha: true,
+                antialias: true,
+                canvas: canvas,
+            });
+            rend.setPixelRatio(window.devicePixelRatio);
+            rend.setSize(window.innerWidth, window.innerHeight);
+            return rend;
+        })();
+
+        // --- ANIMATION & GAME LOGIC ---
+        const moveClock = new THREE.Clock(false);
+
+        function animateVehicles(delta) {
+            const beginningOfRow = (CONSTANTS.minTileIndex - 2) * CONSTANTS.tileSize;
+            const endOfRow = (CONSTANTS.maxTileIndex + 2) * CONSTANTS.tileSize;
+
+            MapManager.metadata.forEach((rowData) => {
+                if (rowData.type === "car") {
+                    rowData.vehicles.forEach(({ ref }) => {
+                        if (!ref) return;
+                        const speed = rowData.speed * delta;
+                        if (rowData.direction) { // Moving right
+                            ref.position.x += speed;
+                            if (ref.position.x > endOfRow) ref.position.x = beginningOfRow;
+                        } else { // Moving left
+                            ref.position.x -= speed;
+                            if (ref.position.x < beginningOfRow) ref.position.x = endOfRow;
+                        }
+                    });
+                }
+            });
+        }
+
+        function animatePlayer() {
+            if (Player.state.movesQueue.length === 0) return;
+            if (!moveClock.running) moveClock.start();
+
+            const progress = Math.min(1, moveClock.getElapsedTime() / CONSTANTS.stepTime);
+            
+            // Calculate start and end positions for interpolation
+            const startX = Player.state.position.currentTile * CONSTANTS.tileSize;
+            const startY = Player.state.position.currentRow * CONSTANTS.tileSize;
+            let endX = startX, endY = startY;
+            const nextMove = Player.state.movesQueue[0];
+
+            if (nextMove === "left") endX -= CONSTANTS.tileSize;
+            if (nextMove === "right") endX += CONSTANTS.tileSize;
+            if (nextMove === "forward") endY += CONSTANTS.tileSize;
+            if (nextMove === "backward") endY -= CONSTANTS.tileSize;
+
+            // Interpolate horizontal position
+            Player.object.position.x = THREE.MathUtils.lerp(startX, endX, progress);
+            Player.object.position.y = THREE.MathUtils.lerp(startY, endY, progress);
+            
+            // Animate jump (vertical position)
+            Player.body.position.z = Math.sin(progress * Math.PI) * 8 + 10;
+
+            if (progress >= 1) {
+                Player.stepCompleted();
+                moveClock.stop();
+            }
+        }
+
+        const playerBoundingBox = new THREE.Box3();
+        const vehicleBoundingBox = new THREE.Box3();
+
+        function hitTest() {
+            const rowData = MapManager.metadata[Player.state.position.currentRow - 1];
+            if (!rowData || rowData.type !== 'car') return;
+
+            playerBoundingBox.setFromObject(Player.body);
+
+            rowData.vehicles.forEach(({ ref }) => {
+                if (!ref) return;
+                vehicleBoundingBox.setFromObject(ref);
+                if (playerBoundingBox.intersectsBox(vehicleBoundingBox)) {
+                    endGame();
+                }
+            });
+        }
+
+        function endGame() {
+            isGameOver = true;
+            document.getElementById('game-over-modal').style.display = 'flex';
+        }
+
+        // --- MAIN ANIMATION LOOP ---
+        function animate() {
+            if (isGameOver) return;
+            
+            const delta = clock.getDelta();
+            
+            animateVehicles(delta);
+            animatePlayer();
+            hitTest();
+
+            renderer.render(scene, camera);
+        }
+        renderer.setAnimationLoop(animate);
+
+        // --- EVENT LISTENERS ---
+        window.addEventListener('keydown', (event) => {
+            if (event.key === "ArrowUp") Player.queueMove("forward");
+            else if (event.key === "ArrowDown") Player.queueMove("backward");
+            else if (event.key === "ArrowLeft") Player.queueMove("left");
+            else if (event.key === "ArrowRight") Player.queueMove("right");
+        });
+
+        window.addEventListener('resize', () => {
+            const aspect = window.innerWidth / window.innerHeight;
+            const d = 300;
+            camera.left = -d * aspect;
+            camera.right = d * aspect;
+            camera.top = d;
+            camera.bottom = -d;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        document.getElementById('restart-button').addEventListener('click', () => {
+            window.location.reload();
+        });
+
+    </script>
+</body>
+</html>

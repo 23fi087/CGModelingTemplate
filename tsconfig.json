@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "node",
+        "esModuleInterop": true,
+        "sourceMap": true,
+        "baseUrl": "./",
+        "paths": {
+            "*": [
+                "*",
+                "@types/*",
+                "node_modules/@types/*",
+            ],
+        },
+    }
+}

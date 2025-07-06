@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"typescript.preferences.importModuleSpecifier": "relative",
+		"debug.javascript.usePreview": false,
+		"typescript.tsdk": "./node_modules/typescript/lib",
+		"terminal.integrated.defaultProfile.windows": "Command Prompt",
+	}
+}
