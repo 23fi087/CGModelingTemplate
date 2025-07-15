@@ -14,7 +14,8 @@ module.exports = {
         filename: '[name].js',
     },
     resolve: {
-        extensions: ['.js', '.ts']
+        extensions: ['.js', '.ts'],
+        mainFields: ['module', 'main'] // three.jsのESMを優先
     },
     module: {
         rules: [

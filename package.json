@@ -26,8 +26,9 @@
     "@types/three": "^0.131.0",
     "dat.gui": "^0.7.7",
     "stats.js": "^0.17.0",
-    "three": "^0.132.2",
-    "three-stdlib": "^2.36.0"
+    "three": "^0.178.0",
+    "three.js": "^0.77.1",
+    "cannon-es": "^0.20.0"
   },
   "devDependencies": {
     "@types/webpack": "^4.41.22",
